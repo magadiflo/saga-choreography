@@ -127,3 +127,116 @@ dc0cca1378d5   mysql:8.0.41-debian   "docker-entrypoint.s…"   4 minutes ago   
 a7e7858d3f75   postgres:17-alpine    "docker-entrypoint.s…"   4 minutes ago   Up 4 minutes   0.0.0.0:5433->5432/tcp, [::]:5433->5432/tcp   c-postgres-order 
 ````
 
+---
+
+# 📋 Order Service
+
+---
+
+## Dependencias
+
+Creamos el proyecto desde
+[Spring Initializr](https://start.spring.io/#!type=maven-project&language=java&platformVersion=3.5.9&packaging=jar&configurationFileFormat=yaml&jvmVersion=21&groupId=dev.magadiflo&artifactId=order-service&name=order-service&description=Demo%20project%20for%20Spring%20Boot&packageName=dev.magadiflo.order.app&dependencies=web,data-jpa,lombok,postgresql,kafka,validation)
+con las siguientes dependencias:
+
+````xml
+<!--Spring Boot 3.5.9-->
+<!--Java 21-->
+<dependencies>
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-data-jpa</artifactId>
+    </dependency>
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-validation</artifactId>
+    </dependency>
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    <dependency>
+        <groupId>org.springframework.kafka</groupId>
+        <artifactId>spring-kafka</artifactId>
+    </dependency>
+
+    <dependency>
+        <groupId>org.postgresql</groupId>
+        <artifactId>postgresql</artifactId>
+        <scope>runtime</scope>
+    </dependency>
+    <dependency>
+        <groupId>org.projectlombok</groupId>
+        <artifactId>lombok</artifactId>
+        <optional>true</optional>
+    </dependency>
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-test</artifactId>
+        <scope>test</scope>
+    </dependency>
+    <dependency>
+        <groupId>org.springframework.kafka</groupId>
+        <artifactId>spring-kafka-test</artifactId>
+        <scope>test</scope>
+    </dependency>
+</dependencies>
+````
+
+## Propiedades de configuración
+
+````yml
+server:
+  port: 8081
+  error:
+    include-message: always
+
+spring:
+  application:
+    name: order-service
+  datasource:
+    url: jdbc:postgresql://localhost:5433/db_order_service
+    username: order_service_user
+    password: order_service_pass
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        format_sql: true
+  kafka:
+    # bootstrap-servers: Dirección del broker de Kafka
+    bootstrap-servers: localhost:9092
+
+    # PRODUCER Configuration
+    producer:
+      # key-serializer: Serializa la key del mensaje (orderId en nuestro caso)
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      # value-serializer: Serializa el evento completo a JSON
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+
+    # CONSUMER Configuration
+    consumer:
+      # group-id: Identifica el grupo de consumidores
+      # Consumidores del mismo grupo balancean la carga de mensajes
+      group-id: order-service-group
+      # auto-offset-reset: Define desde dónde leer si no hay offset guardado
+      # - earliest: Lee desde el inicio del tópico
+      # - latest: Lee solo mensajes nuevos
+      # - none: Lanza excepción si no hay offset
+      auto-offset-reset: earliest
+      # key-deserializer: Deserializa la key del mensaje
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      # value-deserializer: Deserializa el JSON a objeto Java
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      # properties: Configuraciones adicionales del consumer
+      properties:
+        # spring.json.trusted.packages: Paquetes confiables para deserialización
+        # "*" permite deserializar cualquier clase (solo para desarrollo)
+        spring.json.trusted.packages: '*'
+
+logging:
+  level:
+    org.hibernate.SQL: debug
+    dev.magadiflo: debug
+````
