@@ -240,3 +240,192 @@ logging:
     org.hibernate.SQL: debug
     dev.magadiflo: debug
 ````
+
+## Modelos
+
+````java
+public enum Status {
+    PENDING,
+    PAYMENT_PENDING,
+    PAYMENT_CONFIRMED,
+    COMPLETED,
+    CANCELLED
+}
+````
+
+````java
+public enum Currency {
+    USD,
+    EUR,
+    PEN
+}
+````
+
+## Entidades
+
+### Order
+
+````java
+
+@ToString(exclude = "orderDetails") // Excluimos orderDetails para evitar recursividad en logs o debugging.
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+@Setter
+@Getter
+@Entity
+@Table(name = "orders")
+public class Order {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(unique = true, nullable = false, length = 50)
+    private String orderId;
+
+    @Column(nullable = false, length = 50)
+    private String customerId;
+
+    @Column(nullable = false, precision = 10, scale = 2)
+    private BigDecimal totalAmount;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 3)
+    private Currency currency;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private Status status;
+
+    @Column(nullable = false, updatable = false)
+    private LocalDateTime createdAt;
+
+    @Column(nullable = false)
+    private LocalDateTime updatedAt;
+
+    /**
+     * Relación One-to-Many con OrderDetail.
+     * Una orden puede tener múltiples detalles (productos).
+     * <p>
+     * - mappedBy: Indica que Order NO es dueña de la relación (OrderDetail lo es)
+     * - cascade: Propaga operaciones (persist, merge, remove) a los detalles
+     * - orphanRemoval: Si un detalle se quita de la lista, se borra de BD
+     * - fetch = LAZY: Carga bajo demanda (mejor rendimiento y es el valor por defecto en @OneToMany)
+     * <p>
+     * Inicializamos con ArrayList para evitar NullPointerException
+     */
+    @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true, mappedBy = "order")
+    @Builder.Default // Indica a Lombok que use esta inicialización como valor por defecto en el builder
+    private List<OrderDetail> orderDetails = new ArrayList<>();
+
+    /**
+     * Método helper para agregar un detalle a la orden.
+     * Mantiene la consistencia bidireccional de la relación.
+     *
+     * @param orderDetail Detalle a agregar
+     */
+    public void addOrderDetail(OrderDetail orderDetail) {
+        this.orderDetails.add(orderDetail);
+        orderDetail.setOrder(this);
+    }
+
+    /**
+     * Método helper para remover un detalle de la orden.
+     * Mantiene la consistencia bidireccional de la relación.
+     *
+     * @param orderDetail Detalle a remover
+     */
+    public void removeOrderDetail(OrderDetail orderDetail) {
+        this.orderDetails.remove(orderDetail);
+        orderDetail.setOrder(null);
+    }
+
+    @PrePersist
+    protected void onCreate() {
+        this.createdAt = LocalDateTime.now();
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    @PreUpdate
+    protected void onUpdate() {
+        this.updatedAt = LocalDateTime.now();
+    }
+}
+````
+
+### OrderDetail
+
+````java
+
+/**
+ * Entidad OrderDetail - Representa el detalle/línea de una orden.
+ * <p>
+ * Almacena los productos incluidos en una orden con su cantidad y precio.
+ * Esta es la tabla "detalle" que surge de la relación muchos-a-muchos
+ * entre orders y products.
+ * <p>
+ * En arquitectura de microservicios:
+ * - Guardamos product_id como String (referencia externa)
+ * - NO hay Foreign Key a products (está en Inventory Service)
+ * - El precio se guarda aquí para mantener histórico (puede cambiar en el tiempo)
+ */
+@ToString
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+@Setter
+@Getter
+@Entity
+@Table(
+        name = "order_details",
+        uniqueConstraints = @UniqueConstraint(columnNames = {"order_id", "product_id"})
+)
+public class OrderDetail {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    /**
+     * ID del producto (referencia externa al Inventory Service).
+     * <p>
+     * NO es una Foreign Key porque products está en otra base de datos.
+     * Guardamos el productId como String para mantener la referencia
+     * y poder enviarla en eventos Kafka.
+     * <p>
+     * Formato: PROD-001, PROD-002, etc.
+     */
+    @Column(nullable = false, length = 50)
+    private String productId;
+
+    @Column(nullable = false)
+    private Integer quantity;
+
+    @Column(nullable = false, precision = 10, scale = 2)
+    private BigDecimal price;
+
+    /**
+     * Relación Many-to-One con Order.
+     * Muchos detalles pertenecen a una orden.
+     * <p>
+     * - fetch = LAZY: Carga bajo demanda (mejor rendimiento, por defecto es EAGER en una relación @ManyToOne)
+     * - optional = false: asegura que la relación no sea nula en el modelo Java (nivel de objetos en memoria)
+     * - nullable = false: garantiza que la columna FK no acepte valores nulos (nivel de base de datos)
+     * - @JoinColumn: Especifica la FK en esta tabla
+     */
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "order_id", nullable = false)
+    private Order order;
+
+}
+````
+
+## Repositorio
+
+````java
+public interface OrderRepository extends JpaRepository<Order, Long> {
+    Optional<Order> findByOrderId(String orderId);
+
+    boolean existsByOrderId(String orderId);
+}
+````
