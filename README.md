@@ -1311,8 +1311,6 @@ public class OrderController {
 }
 ````
 
-------------------------------------------------------------------------------------------------------------------------
-
 ## Probando Order Service
 
 Luego de ejecutar la aplicación exitosamente, vemos que se nos crea el topic `order.created` en el cluster de
@@ -1325,8 +1323,8 @@ order.created
 
 Como hasta el momento no tenemos ningún consumidor que esté pendiente del topic `order.created` dentro de los archivos
 de instalación de Kafka, en nuestro caso, dentro del contenedor de kafka, viene el script de shell llamado
-`kafka-console-consumer.sh` que nos ayudará a realizar el consumo. Así que ejecutamos el siguiente comando en consola
-y veremos que nuestra consola se queda esperando por los mensajes:
+`kafka-console-consumer.sh` que nos ayudará a realizar el consumo de de eventos según el topic que especifiquemos.
+Así que ejecutamos el siguiente comando en consola y veremos que nuestra consola se queda esperando por los mensajes:
 
 ````bash
 $ docker container exec -it c-kafka-saga /opt/kafka/bin/kafka-console-consumer.sh --topic order.created --bootstrap-server localhost:9092
@@ -1335,30 +1333,30 @@ $ docker container exec -it c-kafka-saga /opt/kafka/bin/kafka-console-consumer.s
 ### Creación de una orden
 
 ````bash
-$ curl -v -X POST -H "Content-type: application/json" -d "{\"customerId\": \"CUST-001\", \"currency\": \"PEN\", \"items\": [{\"productId\": \"PROD-001\", \"quantity\": 2, \"price\": 50.00}, {\"productId\": \"PROD-002\", \"quantity\": 1, \"price\": 30.00}]}" http://localhost:8081/api/v1/orders | jq
+$ curl -v -X POST -H "Content-type: application/json" -d "{\"customerCode\": \"CUST-001\", \"currency\": \"PEN\", \"items\": [{\"productCode\": \"PROD-001\", \"quantity\": 2, \"price\": 50.00}, {\"productCode\": \"PROD-002\", \"quantity\": 1, \"price\": 30.00}]}" http://localhost:8081/api/v1/orders | jq
 >
 < HTTP/1.1 202
 < Content-Type: application/json
 < Transfer-Encoding: chunked
-< Date: Wed, 07 Jan 2026 16:11:35 GMT
+< Date: Wed, 07 Jan 2026 22:36:26 GMT
 <
 {
-  "orderId": "ORD-20260107111135-F4510E7C",
-  "customerId": "CUST-001",
+  "orderCode": "ORD-20260107173626-136117A6",
+  "customerCode": "CUST-001",
   "totalAmount": 130.00,
   "currency": "PEN",
   "status": "PENDING",
-  "createdAt": "2026-01-07T11:11:35.534419",
-  "updatedAt": "2026-01-07T11:11:35.534419",
+  "createdAt": "2026-01-07T17:36:26.518543",
+  "updatedAt": "2026-01-07T17:36:26.518543",
   "items": [
     {
-      "productId": "PROD-001",
+      "productCode": "PROD-001",
       "quantity": 2,
       "price": 50.00,
       "subtotal": 100.00
     },
     {
-      "productId": "PROD-002",
+      "productCode": "PROD-002",
       "quantity": 1,
       "price": 30.00,
       "subtotal": 30.00
@@ -1370,172 +1368,81 @@ $ curl -v -X POST -H "Content-type: application/json" -d "{\"customerId\": \"CUS
 Verificamos el log del IDE de IntelliJ IDEA
 
 ````bash
-2026-01-07T11:11:35.487-05:00  INFO 22132 --- [order-service] [nio-8081-exec-4] d.m.o.app.controller.OrderController     : Se recibió una solicitud de creación de orden para el cliente: CUST-001
-2026-01-07T11:11:35.496-05:00  INFO 22132 --- [order-service] [nio-8081-exec-4] d.m.o.app.service.impl.OrderServiceImpl  : Creando order para cliente: CUST-001
-2026-01-07T11:11:35.541-05:00 DEBUG 22132 --- [order-service] [nio-8081-exec-4] org.hibernate.SQL                        : 
+2026-01-07T17:36:26.477-05:00  INFO 12640 --- [order-service] [nio-8081-exec-1] d.m.o.app.controller.OrderController     : Se recibió una solicitud de creación de orden para el cliente: CUST-001
+2026-01-07T17:36:26.486-05:00  INFO 12640 --- [order-service] [nio-8081-exec-1] d.m.o.app.service.impl.OrderServiceImpl  : Creando order para cliente: CUST-001
+2026-01-07T17:36:26.525-05:00 DEBUG 12640 --- [order-service] [nio-8081-exec-1] org.hibernate.SQL                        : 
     insert 
     into
         orders
-        (created_at, currency, customer_id, order_id, status, total_amount, updated_at) 
+        (created_at, currency, customer_code, order_code, status, total_amount, updated_at) 
     values
         (?, ?, ?, ?, ?, ?, ?)
-2026-01-07T11:11:35.583-05:00 DEBUG 22132 --- [order-service] [nio-8081-exec-4] org.hibernate.SQL                        : 
+2026-01-07T17:36:26.560-05:00 DEBUG 12640 --- [order-service] [nio-8081-exec-1] org.hibernate.SQL                        : 
     insert 
     into
         order_details
-        (order_id, price, product_id, quantity) 
+        (order_id, price, product_code, quantity) 
     values
         (?, ?, ?, ?)
-2026-01-07T11:11:35.586-05:00 DEBUG 22132 --- [order-service] [nio-8081-exec-4] org.hibernate.SQL                        : 
+2026-01-07T17:36:26.563-05:00 DEBUG 12640 --- [order-service] [nio-8081-exec-1] org.hibernate.SQL                        : 
     insert 
     into
         order_details
-        (order_id, price, product_id, quantity) 
+        (order_id, price, product_code, quantity) 
     values
         (?, ?, ?, ?)
-2026-01-07T11:11:35.589-05:00  INFO 22132 --- [order-service] [nio-8081-exec-4] d.m.o.app.service.impl.OrderServiceImpl  : Orden creado con ID 1 y con orderId ORD-20260107111135-F4510E7C
-2026-01-07T11:11:35.611-05:00  INFO 22132 --- [order-service] [nio-8081-exec-4] o.a.k.clients.producer.ProducerConfig    : ProducerConfig values: 
+2026-01-07T17:36:26.567-05:00  INFO 12640 --- [order-service] [nio-8081-exec-1] d.m.o.app.service.impl.OrderServiceImpl  : Orden creado con ID: 1 | con orderCode: ORD-20260107173626-136117A6
+2026-01-07T17:36:26.585-05:00  INFO 12640 --- [order-service] [nio-8081-exec-1] o.a.k.clients.producer.ProducerConfig    : ProducerConfig values: 
 	acks = -1
 	auto.include.jmx.reporter = true
-	batch.size = 16384
-	bootstrap.servers = [localhost:9092]
-	buffer.memory = 33554432
-	client.dns.lookup = use_all_dns_ips
-	client.id = order-service-producer-1
-	compression.gzip.level = -1
-	compression.lz4.level = 9
-	compression.type = none
-	compression.zstd.level = 3
-	connections.max.idle.ms = 540000
-	delivery.timeout.ms = 120000
-	enable.idempotence = true
-	enable.metrics.push = true
-	interceptor.classes = []
-	key.serializer = class org.apache.kafka.common.serialization.StringSerializer
-	linger.ms = 0
-	max.block.ms = 60000
-	max.in.flight.requests.per.connection = 5
-	max.request.size = 1048576
-	metadata.max.age.ms = 300000
-	metadata.max.idle.ms = 300000
-	metadata.recovery.strategy = none
-	metric.reporters = []
-	metrics.num.samples = 2
-	metrics.recording.level = INFO
-	metrics.sample.window.ms = 30000
-	partitioner.adaptive.partitioning.enable = true
-	partitioner.availability.timeout.ms = 0
-	partitioner.class = null
-	partitioner.ignore.keys = false
-	receive.buffer.bytes = 32768
-	reconnect.backoff.max.ms = 1000
-	reconnect.backoff.ms = 50
-	request.timeout.ms = 30000
-	retries = 2147483647
-	retry.backoff.max.ms = 1000
-	retry.backoff.ms = 100
-	sasl.client.callback.handler.class = null
-	sasl.jaas.config = null
-	sasl.kerberos.kinit.cmd = /usr/bin/kinit
-	sasl.kerberos.min.time.before.relogin = 60000
-	sasl.kerberos.service.name = null
-	sasl.kerberos.ticket.renew.jitter = 0.05
-	sasl.kerberos.ticket.renew.window.factor = 0.8
-	sasl.login.callback.handler.class = null
-	sasl.login.class = null
-	sasl.login.connect.timeout.ms = null
-	sasl.login.read.timeout.ms = null
-	sasl.login.refresh.buffer.seconds = 300
-	sasl.login.refresh.min.period.seconds = 60
-	sasl.login.refresh.window.factor = 0.8
-	sasl.login.refresh.window.jitter = 0.05
-	sasl.login.retry.backoff.max.ms = 10000
-	sasl.login.retry.backoff.ms = 100
-	sasl.mechanism = GSSAPI
-	sasl.oauthbearer.clock.skew.seconds = 30
-	sasl.oauthbearer.expected.audience = null
-	sasl.oauthbearer.expected.issuer = null
-	sasl.oauthbearer.header.urlencode = false
-	sasl.oauthbearer.jwks.endpoint.refresh.ms = 3600000
-	sasl.oauthbearer.jwks.endpoint.retry.backoff.max.ms = 10000
-	sasl.oauthbearer.jwks.endpoint.retry.backoff.ms = 100
-	sasl.oauthbearer.jwks.endpoint.url = null
-	sasl.oauthbearer.scope.claim.name = scope
-	sasl.oauthbearer.sub.claim.name = sub
-	sasl.oauthbearer.token.endpoint.url = null
-	security.protocol = PLAINTEXT
-	security.providers = null
-	send.buffer.bytes = 131072
-	socket.connection.setup.timeout.max.ms = 30000
-	socket.connection.setup.timeout.ms = 10000
-	ssl.cipher.suites = null
-	ssl.enabled.protocols = [TLSv1.2, TLSv1.3]
-	ssl.endpoint.identification.algorithm = https
-	ssl.engine.factory.class = null
-	ssl.key.password = null
-	ssl.keymanager.algorithm = SunX509
-	ssl.keystore.certificate.chain = null
-	ssl.keystore.key = null
-	ssl.keystore.location = null
-	ssl.keystore.password = null
-	ssl.keystore.type = JKS
-	ssl.protocol = TLSv1.3
-	ssl.provider = null
-	ssl.secure.random.implementation = null
-	ssl.trustmanager.algorithm = PKIX
-	ssl.truststore.certificates = null
-	ssl.truststore.location = null
-	ssl.truststore.password = null
-	ssl.truststore.type = JKS
-	transaction.timeout.ms = 60000
-	transactional.id = null
+	...
 	value.serializer = class org.springframework.kafka.support.serializer.JsonSerializer
 
-2026-01-07T11:11:35.660-05:00  INFO 22132 --- [order-service] [nio-8081-exec-4] o.a.k.c.t.i.KafkaMetricsCollector        : initializing Kafka metrics collector
-2026-01-07T11:11:35.683-05:00  INFO 22132 --- [order-service] [nio-8081-exec-4] o.a.k.clients.producer.KafkaProducer     : [Producer clientId=order-service-producer-1] Instantiated an idempotent producer.
-2026-01-07T11:11:35.712-05:00  INFO 22132 --- [order-service] [nio-8081-exec-4] o.a.kafka.common.utils.AppInfoParser     : Kafka version: 3.9.1
-2026-01-07T11:11:35.712-05:00  INFO 22132 --- [order-service] [nio-8081-exec-4] o.a.kafka.common.utils.AppInfoParser     : Kafka commitId: f745dfdcee2b9851
-2026-01-07T11:11:35.712-05:00  INFO 22132 --- [order-service] [nio-8081-exec-4] o.a.kafka.common.utils.AppInfoParser     : Kafka startTimeMs: 1767802295712
-2026-01-07T11:11:35.735-05:00  INFO 22132 --- [order-service] [vice-producer-1] org.apache.kafka.clients.Metadata        : [Producer clientId=order-service-producer-1] Cluster ID: 5L6g3nShT-eMCtK--X86sw
-2026-01-07T11:11:35.779-05:00  INFO 22132 --- [order-service] [nio-8081-exec-4] d.m.o.a.e.publisher.OrderEventPublisher  : Se publicó el evento ORDER_CREATED, en el topic order.created, para la orden ORD-20260107111135-F4510E7C
-2026-01-07T11:11:35.800-05:00  INFO 22132 --- [order-service] [nio-8081-exec-4] d.m.o.app.controller.OrderController     : Orden creada exitosamente: ORD-20260107111135-F4510E7C
-2026-01-07T11:11:35.850-05:00  INFO 22132 --- [order-service] [vice-producer-1] o.a.k.c.p.internals.TransactionManager   : [Producer clientId=order-service-producer-1] ProducerId set to 0 with epoch 0 
+2026-01-07T17:36:26.609-05:00  INFO 12640 --- [order-service] [nio-8081-exec-1] o.a.k.c.t.i.KafkaMetricsCollector        : initializing Kafka metrics collector
+2026-01-07T17:36:26.632-05:00  INFO 12640 --- [order-service] [nio-8081-exec-1] o.a.k.clients.producer.KafkaProducer     : [Producer clientId=order-service-producer-1] Instantiated an idempotent producer.
+2026-01-07T17:36:26.654-05:00  INFO 12640 --- [order-service] [nio-8081-exec-1] o.a.kafka.common.utils.AppInfoParser     : Kafka version: 3.9.1
+2026-01-07T17:36:26.654-05:00  INFO 12640 --- [order-service] [nio-8081-exec-1] o.a.kafka.common.utils.AppInfoParser     : Kafka commitId: f745dfdcee2b9851
+2026-01-07T17:36:26.654-05:00  INFO 12640 --- [order-service] [nio-8081-exec-1] o.a.kafka.common.utils.AppInfoParser     : Kafka startTimeMs: 1767825386653
+2026-01-07T17:36:26.670-05:00  INFO 12640 --- [order-service] [vice-producer-1] org.apache.kafka.clients.Metadata        : [Producer clientId=order-service-producer-1] Cluster ID: 5L6g3nShT-eMCtK--X86sw
+2026-01-07T17:36:26.671-05:00  INFO 12640 --- [order-service] [vice-producer-1] o.a.k.c.p.internals.TransactionManager   : [Producer clientId=order-service-producer-1] ProducerId set to 1 with epoch 0
+2026-01-07T17:36:26.711-05:00  INFO 12640 --- [order-service] [nio-8081-exec-1] d.m.o.a.e.publisher.OrderEventPublisher  : Se publicó el evento ORDER_CREATED, en el topic order.created, para la orden ORD-20260107173626-136117A6
+2026-01-07T17:36:26.735-05:00  INFO 12640 --- [order-service] [nio-8081-exec-1] d.m.o.app.controller.OrderController     : Orden creada exitosamente: ORD-20260107173626-136117A6
 ````
 
-Verificamos la consola del consumidor que dejamos escuchando al topic `order.created`.
+Verificamos que la consola del consumidor ha escuchado el evento que acabamos de publicar al topic `order.created`.
 
 ````bash
 $ docker container exec -it c-kafka-saga /opt/kafka/bin/kafka-console-consumer.sh --topic order.created --bootstrap-server localhost:9092
-{"eventId":"fdb56556-1753-431c-b3d4-34987232be17","eventType":"ORDER_CREATED","timestamp":[2026,1,7,11,11,35,592386300],"orderId":"ORD-20260107111135-F4510E7C","payload":{"customerId":"CUST-001","totalAmount":130.00,"currency":"PEN","items":[{"productId":"PROD-001","quantity":2,"price":50.00},{"productId":"PROD-002","quantity":1,"price":30.00}]}}
+{"eventId":"505ee8ae-0318-4fbe-b0f0-88b54575f26b","eventType":"ORDER_CREATED","timestamp":[2026,1,7,17,36,26,570355300],"orderCode":"ORD-20260107173626-136117A6","payload":{"customerCode":"CUST-001","totalAmount":130.00,"currency":"PEN","items":[{"productCode":"PROD-001","quantity":2,"price":50.00},{"productCode":"PROD-002","quantity":1,"price":30.00}]}}
 ````
 
 ### Consultando una orden
 
 ````bash
-$ curl -v http://localhost:8081/api/v1/orders/ORD-20260107111135-F4510E7C | jq
+$ curl -v http://localhost:8081/api/v1/orders/ORD-20260107173626-136117A6 | jq
 >
 < HTTP/1.1 200
 < Content-Type: application/json
 < Transfer-Encoding: chunked
-< Date: Wed, 07 Jan 2026 16:28:10 GMT
+< Date: Wed, 07 Jan 2026 22:42:16 GMT
 <
 {
-  "orderId": "ORD-20260107111135-F4510E7C",
-  "customerId": "CUST-001",
+  "orderCode": "ORD-20260107173626-136117A6",
+  "customerCode": "CUST-001",
   "totalAmount": 130.00,
   "currency": "PEN",
   "status": "PENDING",
-  "createdAt": "2026-01-07T11:11:35.534419",
-  "updatedAt": "2026-01-07T11:11:35.534419",
+  "createdAt": "2026-01-07T17:36:26.518543",
+  "updatedAt": "2026-01-07T17:36:26.518543",
   "items": [
     {
-      "productId": "PROD-001",
+      "productCode": "PROD-001",
       "quantity": 2,
       "price": 50.00,
       "subtotal": 100.00
     },
     {
-      "productId": "PROD-002",
+      "productCode": "PROD-002",
       "quantity": 1,
       "price": 30.00,
       "subtotal": 30.00
@@ -1547,48 +1454,36 @@ $ curl -v http://localhost:8081/api/v1/orders/ORD-20260107111135-F4510E7C | jq
 Verificando log del IDE de IntelliJ IDEA
 
 ````bash
-2026-01-07T11:28:10.568-05:00  INFO 22132 --- [order-service] [nio-8081-exec-2] d.m.o.app.controller.OrderController     : Se recibió una solicitud de orden para: ORD-20260107111135-F4510E7C
-2026-01-07T11:28:10.573-05:00  INFO 22132 --- [order-service] [nio-8081-exec-2] d.m.o.app.service.impl.OrderServiceImpl  : Recuperando orden ORD-20260107111135-F4510E7C
-2026-01-07T11:28:10.696-05:00 DEBUG 22132 --- [order-service] [nio-8081-exec-2] org.hibernate.SQL                        : 
+2026-01-07T17:42:15.946-05:00  INFO 12640 --- [order-service] [nio-8081-exec-3] d.m.o.app.controller.OrderController     : Recuperar la orden con orderCode: ORD-20260107173626-136117A6
+2026-01-07T17:42:15.949-05:00  INFO 12640 --- [order-service] [nio-8081-exec-3] d.m.o.app.service.impl.OrderServiceImpl  : Recuperando orden: ORD-20260107173626-136117A6
+2026-01-07T17:42:16.048-05:00 DEBUG 12640 --- [order-service] [nio-8081-exec-3] org.hibernate.SQL                        : 
     select
         o1_0.id,
         o1_0.created_at,
         o1_0.currency,
-        o1_0.customer_id,
-        o1_0.order_id,
+        o1_0.customer_code,
+        o1_0.order_code,
         o1_0.status,
         o1_0.total_amount,
         o1_0.updated_at 
     from
         orders o1_0 
     where
-        o1_0.order_id=?
-2026-01-07T11:28:10.723-05:00 DEBUG 22132 --- [order-service] [nio-8081-exec-2] org.hibernate.SQL                        : 
+        o1_0.order_code=?
+2026-01-07T17:42:16.066-05:00 DEBUG 12640 --- [order-service] [nio-8081-exec-3] org.hibernate.SQL                        : 
     select
         od1_0.order_id,
         od1_0.id,
         od1_0.price,
-        od1_0.product_id,
+        od1_0.product_code,
         od1_0.quantity 
     from
         order_details od1_0 
     where
-        od1_0.order_id=? 
+        od1_0.order_id=?
 ````
 
 Si revisamos la base de datos del microservicio `order-service` veremos que los datos se han guardado correctamente
 
 ![01.png](assets/01-order-service/01.png)
-
-Recordemos que a nivel de base de datos estamos trabajando con los tradicionales id incrementales, en ese sentido:
-
-- La PK de la tabla orders es id.
-- La PK de la tabla order_details es id.
-- La FK en la tabla order_details que hace referencia a la tabla orders es order_id.
-
-Estas claves son importantes para manejar las relaciones, consultas, etc. a nivel de base de datos. Mientras que,
-por otro lado, en la tabla orders hay una columna llamada order_id que es del tipo varchar, es una columna que servirá
-como "clave única" para el registro de la orden, es este dato el que estará viajando de manera externa, el que se
-expondrá en los endpoints o el que usará el cliente para consultar una orden. Para mejor claridad, podríamos haberle
-dado otro nombre para no confundirlo con claves foráneas, pero bueno, por eso hago esta aclaración.
 
