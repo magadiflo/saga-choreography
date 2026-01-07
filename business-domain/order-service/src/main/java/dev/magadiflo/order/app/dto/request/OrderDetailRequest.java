@@ -8,7 +8,7 @@ import jakarta.validation.constraints.Positive;
 import java.math.BigDecimal;
 
 public record OrderDetailRequest(@NotBlank
-                                 String productId,
+                                 String productCode,
 
                                  @NotNull
                                  @Min(value = 1)
@@ -17,4 +17,7 @@ public record OrderDetailRequest(@NotBlank
                                  @NotNull
                                  @Positive
                                  BigDecimal price) {
+    public BigDecimal subtotal() {
+        return this.price.multiply(BigDecimal.valueOf(this.quantity));
+    }
 }

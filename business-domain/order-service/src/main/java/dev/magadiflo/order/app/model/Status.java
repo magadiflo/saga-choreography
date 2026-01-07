@@ -1,9 +1,8 @@
 package dev.magadiflo.order.app.model;
 
 public enum Status {
-    PENDING,
-    PAYMENT_PENDING,
-    PAYMENT_CONFIRMED,
-    COMPLETED,
-    CANCELLED
+    PENDING,            // Orden creada, esperando tod el flujo
+    PAYMENT_CONFIRMED,  // Pago confirmado
+    COMPLETED,          // Happy path final
+    CANCELLED           // Falló algo
 }

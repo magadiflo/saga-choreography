@@ -7,8 +7,8 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
-public record OrderResponse(String orderId,
-                            String customerId,
+public record OrderResponse(String orderCode,
+                            String customerCode,
                             BigDecimal totalAmount,
                             Currency currency,
                             Status status,

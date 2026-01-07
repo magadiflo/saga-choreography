@@ -245,11 +245,10 @@ logging:
 
 ````java
 public enum Status {
-    PENDING,
-    PAYMENT_PENDING,
-    PAYMENT_CONFIRMED,
-    COMPLETED,
-    CANCELLED
+    PENDING,            // Orden creada, esperando tod el flujo
+    PAYMENT_CONFIRMED,  // Pago confirmado
+    COMPLETED,          // Happy path final
+    CANCELLED           // Falló algo
 }
 ````
 
@@ -258,6 +257,12 @@ public enum Currency {
     USD,
     EUR,
     PEN
+}
+````
+
+````java
+public enum EventType {
+    ORDER_CREATED
 }
 ````
 
@@ -281,10 +286,10 @@ public class Order {
     private Long id;
 
     @Column(unique = true, nullable = false, length = 50)
-    private String orderId;
+    private String orderCode;
 
     @Column(nullable = false, length = 50)
-    private String customerId;
+    private String customerCode;
 
     @Column(nullable = false, precision = 10, scale = 2)
     private BigDecimal totalAmount;
@@ -297,9 +302,23 @@ public class Order {
     @Column(nullable = false, length = 20)
     private Status status;
 
+    /**
+     * @CreationTimestamp: Cuando haces un repository.save(order), Hibernate genera un INSERT. 
+     * Justo antes de enviarlo, mira el reloj del servidor y llena el campo createdAt. 
+     * Al tener updatable = false, Hibernate ignorará cualquier intento posterior de cambiar esa fecha.
+     */
+    @CreationTimestamp
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
+    /**
+     * @UpdateTimestamp: Cada vez que la entidad esté en estado "Managed" (gestionada) y 
+     * detecte un cambio en cualquier campo, Hibernate generará un UPDATE e 
+     * incluirá la nueva fecha en updatedAt.
+     *
+     * Cuando haces el primer save() @UpdateTimestamp también le asigna la fecha actual a updatedAt.
+     */
+    @UpdateTimestamp
     @Column(nullable = false)
     private LocalDateTime updatedAt;
 
@@ -317,6 +336,18 @@ public class Order {
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true, mappedBy = "order")
     @Builder.Default // Indica a Lombok que use esta inicialización como valor por defecto en el builder
     private List<OrderDetail> orderDetails = new ArrayList<>();
+
+    @Override
+    public boolean equals(Object o) {
+        if (o == null || getClass() != o.getClass()) return false;
+        Order order = (Order) o;
+        return Objects.equals(this.getOrderCode(), order.getOrderCode());
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hashCode(this.getOrderCode());
+    }
 
     /**
      * Método helper para agregar un detalle a la orden.
@@ -339,24 +370,12 @@ public class Order {
         this.orderDetails.remove(orderDetail);
         orderDetail.setOrder(null);
     }
-
-    @PrePersist
-    protected void onCreate() {
-        this.createdAt = LocalDateTime.now();
-        this.updatedAt = LocalDateTime.now();
-    }
-
-    @PreUpdate
-    protected void onUpdate() {
-        this.updatedAt = LocalDateTime.now();
-    }
 }
 ````
 
 ### OrderDetail
 
 ````java
-
 /**
  * Entidad OrderDetail - Representa el detalle/línea de una orden.
  * <p>
@@ -365,11 +384,11 @@ public class Order {
  * entre orders y products.
  * <p>
  * En arquitectura de microservicios:
- * - Guardamos product_id como String (referencia externa)
+ * - Guardamos product_code como String (referencia externa o clave de negocio)
  * - NO hay Foreign Key a products (está en Inventory Service)
  * - El precio se guarda aquí para mantener histórico (puede cambiar en el tiempo)
  */
-@ToString
+@ToString(exclude = "order") // Excluimos order para evitar recursividad en logs o debugging.
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
@@ -378,25 +397,24 @@ public class Order {
 @Entity
 @Table(
         name = "order_details",
-        uniqueConstraints = @UniqueConstraint(columnNames = {"order_id", "product_id"})
+        uniqueConstraints = @UniqueConstraint(columnNames = {"order_id", "product_code"})
 )
 public class OrderDetail {
-
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
     /**
-     * ID del producto (referencia externa al Inventory Service).
+     * Código del producto (referencia externa al Inventory Service).
      * <p>
      * NO es una Foreign Key porque products está en otra base de datos.
-     * Guardamos el productId como String para mantener la referencia
+     * Guardamos el productCode como String para mantener la referencia
      * y poder enviarla en eventos Kafka.
      * <p>
      * Formato: PROD-001, PROD-002, etc.
      */
     @Column(nullable = false, length = 50)
-    private String productId;
+    private String productCode;
 
     @Column(nullable = false)
     private Integer quantity;
@@ -417,6 +435,18 @@ public class OrderDetail {
     @JoinColumn(name = "order_id", nullable = false)
     private Order order;
 
+    @Override
+    public boolean equals(Object o) {
+        if (o == null || getClass() != o.getClass()) return false;
+        OrderDetail that = (OrderDetail) o;
+        return Objects.equals(this.getProductCode(), that.getProductCode()) &&
+               Objects.equals(this.getOrder(), that.getOrder());
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(this.getProductCode());
+    }
 }
 ````
 
@@ -424,9 +454,9 @@ public class OrderDetail {
 
 ````java
 public interface OrderRepository extends JpaRepository<Order, Long> {
-    Optional<Order> findByOrderId(String orderId);
+    Optional<Order> findByOrderCode(String orderCode);
 
-    boolean existsByOrderId(String orderId);
+    boolean existsByOrderCode(String orderCode);
 }
 ````
 
@@ -436,11 +466,11 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 
 ````java
 public record OrderDetailRequest(/**
-                                  * ID del producto (referencia al Inventory Service).
+                                  * Código del producto (referencia al Inventory Service).
                                   * Ejemplo: "PROD-001", "PROD-002"
                                   */
                                  @NotBlank
-                                 String productId,
+                                 String productCode,
 
                                  /**
                                   * Cantidad del producto a ordenar.
@@ -463,16 +493,19 @@ public record OrderDetailRequest(/**
                                  @NotNull
                                  @Positive
                                  BigDecimal price) {
+    public BigDecimal subtotal() {
+        return this.price.multiply(BigDecimal.valueOf(this.quantity));
+    }
 }
 ````
 
 ````java
 public record CreateOrderRequest(/**
-                                  * ID del cliente que realiza la orden.
+                                  * Código del cliente que realiza la orden.
                                   * Ejemplo: "CUST-001", "CUST-789"
                                   */
                                  @NotBlank
-                                 String customerId,
+                                 String customerCode,
 
                                  /**
                                   * Moneda de la transacción.
@@ -498,7 +531,7 @@ public record CreateOrderRequest(/**
 ### Response
 
 ````java
-public record OrderDetailResponse(String productId,
+public record OrderDetailResponse(String productCode,
                                   Integer quantity,
                                   BigDecimal price) {
     @JsonProperty
@@ -513,25 +546,24 @@ public record OrderDetailResponse(String productId,
  * DTO para devolver información de una orden al cliente.
  *
  * Se usa en el response de:
- * - POST /api/orders (retorna 202 Accepted con este DTO)
- * - GET /api/orders/{orderId}
+ * - POST /api/v1/orders (retorna 202 Accepted con este DTO)
+ * - GET /api/v1/orders/{orderCode}
  *
  * Expone solo la información necesaria para el cliente.
- * NO incluye el ID técnico (Long id), solo el orderId de negocio.
+ * NO incluye el ID técnico (Long id), solo el orderCode de negocio.
  */
 public record OrderResponse(/**
-                             * Order ID - Identificador de negocio de la orden.
-                             * Este es el ID que el cliente usa para consultar el estado.
+                             * orderCode - Identificador de negocio de la orden.
+                             * Este es el código que el cliente usa para consultar el estado.
                              * Ejemplo: "ORD-1735680000-A3F9"
                              */
-                            String orderId,
-                            String customerId,
+                            String orderCode,
+                            String customerCode,
                             BigDecimal totalAmount,
                             Currency currency,
-
                             /**
                              * Estado actual de la orden en el flujo SAGA.
-                             * Valores posibles: PENDING, PAYMENT_PENDING, PAYMENT_CONFIRMED, COMPLETED, CANCELLED
+                             * Valores posibles: PENDING, PAYMENT_CONFIRMED, COMPLETED, CANCELLED
                              */
                             Status status,
                             LocalDateTime createdAt,
@@ -543,22 +575,21 @@ public record OrderResponse(/**
 ### Events
 
 ````java
-
 /**
  * Clase base para todos los eventos del sistema.
  * <p>
  * Proporciona campos comunes que todos los eventos deben tener:
- * - eventId: Identificador único del evento
+ * - eventId: Identificador técnico interno del evento
  * - eventType: Tipo de evento (ORDER_CREATED, PAYMENT_PROCESSED, etc.)
  * - timestamp: Momento en que ocurrió el evento
- * - orderId: ID de la orden relacionada (clave para particionamiento en Kafka)
+ * - orderCode: Código de la orden relacionada (clave para particionamiento en Kafka)
  * <p>
  * Todas las clases de eventos heredan de esta clase base.
  * Usamos @SuperBuilder para que Lombok genere builders que funcionen con herencia.
  */
 @AllArgsConstructor
 @NoArgsConstructor
-@SuperBuilder // Permite usar el patrón Builder con herencia
+@SuperBuilder
 @Data
 public abstract class BaseEvent {
     /**
@@ -567,7 +598,6 @@ public abstract class BaseEvent {
      * Útil para idempotencia y trazabilidad.
      */
     private String eventId;
-
     /**
      * Tipo de evento.
      * Ejemplo: "ORDER_CREATED", "PAYMENT_PROCESSED", "INVENTORY_RESERVED"
@@ -575,55 +605,40 @@ public abstract class BaseEvent {
      * Cada clase hija define su propio tipo en el constructor o builder.
      */
     private String eventType;
-
     /**
      * Timestamp del evento.
      * Momento exacto en que ocurrió el evento.
      * Útil para ordenamiento, debugging y auditoría.
      */
     private LocalDateTime timestamp;
-
     /**
-     * Order ID relacionado con este evento.
+     * Código de la orden relacionado con este evento.
      * <p>
      * CRÍTICO: Este campo se usa como KEY en Kafka para:
      * - Garantizar que todos los eventos de una orden vayan a la misma partición
      * - Mantener el orden de eventos de una misma transacción SAGA
      * <p>
-     * Todos los eventos de la misma orden comparten este orderId.
+     * Todos los eventos de la misma orden comparten este orderCode.
      */
-    private String orderId;
-
-    /**
-     * Método helper para inicializar campos comunes del evento.
-     * Se puede llamar desde las clases hijas para establecer valores por defecto.
-     */
-    protected void initializeBaseFields(String eventType, String orderId) {
-        this.eventId = UUID.randomUUID().toString();
-        this.timestamp = LocalDateTime.now();
-        this.eventType = eventType;
-        this.orderId = orderId;
-    }
+    private String orderCode;
 }
 ````
 
 ````java
-
 /**
  * Evento que se publica cuando se crea una orden.
  * <p>
- * Este evento INICIA el flujo SAGA de coreografía.
+ * Este evento inicia el flujo SAGA de coreografía.
  * Se publica al tópico: order.created
  * <p>
  * El Payment Service escucha este evento para procesar el pago.
  */
 @AllArgsConstructor
 @NoArgsConstructor
-@EqualsAndHashCode(callSuper = true)  // Incluye campos de la clase padre en equals/hashCode
+@EqualsAndHashCode(callSuper = true) // Incluye campos de la clase padre en equals/hashCode
 @SuperBuilder
 @Data
 public class OrderCreatedEvent extends BaseEvent {
-
     /**
      * Payload específico del evento ORDER_CREATED.
      * Contiene toda la información necesaria para que otros servicios procesen la orden.
@@ -639,7 +654,7 @@ public class OrderCreatedEvent extends BaseEvent {
     @Builder
     @Data
     public static class Payload {
-        private String customerId;
+        private String customerCode;
         private BigDecimal totalAmount;
         private Currency currency;
         /**
@@ -658,16 +673,14 @@ public class OrderCreatedEvent extends BaseEvent {
     @Builder
     @Data
     public static class OrderItem {
-        private String productId;
+        private String productCode;
         private Integer quantity;
         private BigDecimal price;
     }
-
 }
 ````
 
 ````java
-
 /**
  * Evento que se recibe cuando el inventario fue reservado exitosamente.
  *
@@ -692,11 +705,10 @@ public class InventoryReservedEvent extends BaseEvent {
     @Data
     public static class Payload {
         /**
-         * ID de la reserva generada en el Inventory Service.
+         * Código de la reserva generada en el Inventory Service.
          * Ejemplo: "RES-321"
          */
-        private String reservationId;
-
+        private String reservationCode;
         /**
          * Lista de items/productos que fueron reservados exitosamente.
          */
@@ -709,10 +721,9 @@ public class InventoryReservedEvent extends BaseEvent {
     @Data
     public static class ReservedItem {
         /**
-         * ID del producto reservado.
+         * Código del producto reservado.
          */
-        private String productId;
-
+        private String productCode;
         /**
          * Cantidad reservada del producto.
          */
@@ -722,7 +733,6 @@ public class InventoryReservedEvent extends BaseEvent {
 ````
 
 ````java
-
 /**
  * Evento que se recibe cuando la reserva de inventario falló.
  * <p>
@@ -768,9 +778,9 @@ public class InventoryFailedEvent extends BaseEvent {
     @Data
     public static class UnavailableItem {
         /**
-         * ID del producto sin stock.
+         * Código del producto sin stock.
          */
-        private String productId;
+        private String productCode;
         /**
          * Cantidad solicitada.
          */
@@ -785,7 +795,6 @@ public class InventoryFailedEvent extends BaseEvent {
 ````
 
 ````java
-
 /**
  * Evento que se recibe cuando el pago fue procesado exitosamente.
  * <p>
@@ -809,25 +818,21 @@ public class PaymentProcessedEvent extends BaseEvent {
     @Data
     public static class Payload {
         /**
-         * ID del pago generado.
+         * Código del pago generado.
          */
-        private String paymentId;
-
+        private String paymentCode;
         /**
          * Monto pagado.
          */
         private BigDecimal amount;
-
         /**
          * Moneda del pago.
          */
         private String currency;
-
         /**
-         * ID de la transacción externa (simulado).
+         * Código de la transacción externa (simulado).
          */
-        private String transactionId;
-
+        private String transactionCode;
     }
 }
 ````
@@ -872,7 +877,6 @@ public class PaymentFailedEvent extends BaseEvent {
 ````
 
 ````java
-
 /**
  * Evento que se recibe cuando el pago fue reembolsado (compensación).
  * <p>
@@ -897,20 +901,14 @@ public class PaymentRefundedEvent extends BaseEvent {
     @Data
     public static class Payload {
         /**
-         * ID del reembolso generado.
+         * Código del reembolso generado.
          */
-        private String refundId;
-
-        /**
-         * Monto reembolsado.
-         */
+        private String refundCode;
         private BigDecimal amount;
-
         /**
-         * ID del pago original que se reembolsó.
+         * Código del pago original que se reembolsó.
          */
-        private String originalPaymentId;
-
+        private String originalPaymentCode;
         /**
          * Razón del reembolso.
          * Ejemplo: "Order cancelled due to inventory failure"
@@ -919,3 +917,678 @@ public class PaymentRefundedEvent extends BaseEvent {
     }
 }
 ````
+
+## Exceptions
+
+````java
+public class OrderNotFoundException extends RuntimeException {
+    public OrderNotFoundException(String orderCode) {
+        super("Orden no encontrada: " + orderCode);
+    }
+}
+````
+
+## Mapper
+
+````java
+
+@UtilityClass
+public class OrderMapper {
+    public Order toCreateEntityOrder(CreateOrderRequest request, String generatedOrderCode, BigDecimal totalAmount) {
+        Order order = Order.builder()
+                .orderCode(generatedOrderCode)
+                .customerCode(request.customerCode())
+                .totalAmount(totalAmount)
+                .currency(request.currency())
+                .status(Status.PENDING) // Estado inicial
+                .build();
+        request.items().forEach(itemDto -> {
+            OrderDetail orderDetail = toOrderDetail(itemDto);
+            order.addOrderDetail(orderDetail);
+        });
+        return order;
+    }
+
+    public OrderDetail toOrderDetail(OrderDetailRequest request) {
+        return OrderDetail.builder()
+                .productCode(request.productCode())
+                .quantity(request.quantity())
+                .price(request.price())
+                .build();
+    }
+
+    public OrderResponse toOrderResponse(Order order) {
+        List<OrderDetailResponse> itemsResponse = order.getOrderDetails().stream()
+                .map(orderDetail -> new OrderDetailResponse(
+                        orderDetail.getProductCode(),
+                        orderDetail.getQuantity(),
+                        orderDetail.getPrice()
+                )).toList();
+        return new OrderResponse(
+                order.getOrderCode(),
+                order.getCustomerCode(),
+                order.getTotalAmount(),
+                order.getCurrency(),
+                order.getStatus(),
+                order.getCreatedAt(),
+                order.getUpdatedAt(),
+                itemsResponse
+        );
+    }
+}
+````
+
+## Constants
+
+````java
+
+@UtilityClass
+public class OrderMessagingConstants {
+    public static final String TOPIC_ORDER_CREATED = "order.created";
+}
+````
+
+## Config
+
+````java
+
+@Configuration
+public class KafkaTopicConfig {
+    @Bean
+    public NewTopic orderTopic() {
+        return TopicBuilder.name(OrderMessagingConstants.TOPIC_ORDER_CREATED).build();
+    }
+}
+````
+
+## Publisher
+
+````java
+
+@Slf4j
+@RequiredArgsConstructor
+@Component
+public class OrderEventPublisher {
+
+    private final KafkaTemplate<String, OrderCreatedEvent> kafkaTemplate;
+
+    /**
+     * Publica el evento ORDER_CREATED a Kafka.
+     * Este evento inicia el flujo SAGA.
+     *
+     * @param order Orden creada
+     */
+    public void publishOrderCreatedEvent(Order order) {
+        // Construir la lista de items para el evento
+        List<OrderCreatedEvent.OrderItem> eventItems = order.getOrderDetails().stream()
+                .map(orderDetail -> OrderCreatedEvent.OrderItem.builder()
+                        .productCode(orderDetail.getProductCode())
+                        .quantity(orderDetail.getQuantity())
+                        .price(orderDetail.getPrice())
+                        .build()
+                ).toList();
+
+        // Construir el payload
+        OrderCreatedEvent.Payload payload = OrderCreatedEvent.Payload.builder()
+                .customerCode(order.getCustomerCode())
+                .totalAmount(order.getTotalAmount())
+                .currency(order.getCurrency())
+                .items(eventItems)
+                .build();
+
+        // Construir evento completo
+        OrderCreatedEvent event = OrderCreatedEvent.builder()
+                .eventId(UUID.randomUUID().toString())
+                .eventType(EventType.ORDER_CREATED.name())
+                .timestamp(LocalDateTime.now())
+                .orderCode(order.getOrderCode())
+                .payload(payload)
+                .build();
+
+        // Publicar a Kafka usando orderCode como key (cada order irá a una misma partición según su orderCode)
+        this.kafkaTemplate.send(OrderMessagingConstants.TOPIC_ORDER_CREATED, order.getOrderCode(), event);
+        log.info("Se publicó el evento {}, en el topic {}, para la orden {}",
+                EventType.ORDER_CREATED.name(), OrderMessagingConstants.TOPIC_ORDER_CREATED, order.getOrderCode());
+    }
+}
+````
+
+## Service
+
+````java
+public interface OrderService {
+    OrderResponse createOrder(CreateOrderRequest request);
+
+    OrderResponse getOrder(String orderCode);
+
+    void handlePaymentProcessed(PaymentProcessedEvent event);
+
+    void handlePaymentFailed(PaymentFailedEvent event);
+
+    void handlePaymentRefunded(PaymentRefundedEvent event);
+
+    void handleInventoryReserved(InventoryReservedEvent event);
+}
+````
+
+````java
+/**
+ * Servicio que gestiona la lógica de negocio de las órdenes.
+ * <p>
+ * Responsabilidades:
+ * - Crear órdenes y publicar eventos ORDER_CREATED
+ * - Consultar estado de órdenes
+ * - Actualizar estado según eventos recibidos de otros servicios
+ * - Coordinar el flujo SAGA mediante eventos Kafka
+ */
+@Slf4j
+@RequiredArgsConstructor
+@Service
+@Transactional(readOnly = true)
+public class OrderServiceImpl implements OrderService {
+
+    private final OrderRepository orderRepository;
+    private final OrderEventPublisher orderEventPublisher;
+
+    /**
+     * Crea una nueva orden y publica el evento ORDER_CREATED.
+     * <p>
+     * Flujo:
+     * 1. Genera orderCode único
+     * 2. Calcula total amount
+     * 3. Crea entidad Order con detalles
+     * 4. Persiste en BD con estado PENDING
+     * 5. Publica evento order.created
+     * 6. Retorna OrderResponse
+     *
+     * @param request Solicitud con datos de la orden
+     * @return OrderResponse con orderCode y estado PENDING
+     */
+    @Override
+    @Transactional
+    public OrderResponse createOrder(CreateOrderRequest request) {
+        log.info("Creando order para cliente: {}", request.customerCode());
+
+        // 1. Generar código de negocio único
+        String orderCode = this.generateOrderCode();
+
+        // 2. Calcular el monto total (suma de subtotal = price * quantity de cada item)
+        BigDecimal totalAmount = request.items().stream()
+                .map(OrderDetailRequest::subtotal)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        // 3. Crear la entidad Order con detalles
+        Order order = OrderMapper.toCreateEntityOrder(request, orderCode, totalAmount);
+
+        // 4. Persiste en BD con estado PENDING
+        Order savedOrder = this.orderRepository.save(order);
+        log.info("Orden creado con ID: {} | con orderCode: {}", savedOrder.getId(), savedOrder.getOrderCode());
+
+        // 5. Publica evento order.created
+        this.orderEventPublisher.publishOrderCreatedEvent(savedOrder);
+
+        // 6. Retorna OrderResponse
+        return OrderMapper.toOrderResponse(savedOrder);
+    }
+
+    /**
+     * Consulta una orden por su orderCode.
+     *
+     * @param orderCode Identificador de negocio de la orden
+     * @return OrderResponse con el estado actual de la orden
+     * @throws RuntimeException si la orden no existe
+     */
+    @Override
+    public OrderResponse getOrder(String orderCode) {
+        log.info("Recuperando orden: {}", orderCode);
+        return this.orderRepository.findByOrderCode(orderCode)
+                .map(OrderMapper::toOrderResponse)
+                .orElseThrow(() -> new OrderNotFoundException(orderCode));
+    }
+
+    /**
+     * Actualiza el estado de la orden a PAYMENT_CONFIRMED.
+     * Se ejecuta cuando se recibe el evento PaymentProcessedEvent.
+     *
+     * @param event Evento de pago procesado
+     */
+    @Override
+    @Transactional
+    public void handlePaymentProcessed(PaymentProcessedEvent event) {
+        log.info("Procesando el evento de pago realizado para la orden: {}", event.getOrderCode());
+        Order order = this.orderRepository.findByOrderCode(event.getOrderCode())
+                .map(orderDB -> {
+                    orderDB.setStatus(Status.PAYMENT_CONFIRMED);
+                    return orderDB;
+                })
+                .orElseThrow(() -> new OrderNotFoundException(event.getOrderCode()));
+        this.orderRepository.save(order);
+        log.info("Orden {} actualizada a {}", event.getOrderCode(), Status.PAYMENT_CONFIRMED);
+    }
+
+    /**
+     * Actualiza el estado de la orden a CANCELLED.
+     * Se ejecuta cuando se recibe el evento PaymentFailedEvent.
+     *
+     * @param event Evento de pago fallido
+     */
+    @Override
+    @Transactional
+    public void handlePaymentFailed(PaymentFailedEvent event) {
+        log.info("Manejo de eventos de pago fallidos para la orden: {}", event.getOrderCode());
+        Order order = this.orderRepository.findByOrderCode(event.getOrderCode())
+                .map(orderDB -> {
+                    orderDB.setStatus(Status.CANCELLED);
+                    return orderDB;
+                })
+                .orElseThrow(() -> new OrderNotFoundException(event.getOrderCode()));
+        this.orderRepository.save(order);
+        log.info("Orden {} cancelada debido a fallo en el pago: {}", event.getOrderCode(), event.getPayload().getReason());
+    }
+
+    /**
+     * Actualiza el estado de la orden a CANCELLED.
+     * Se ejecuta cuando se recibe el evento PaymentRefundedEvent.
+     * Este es el FINAL del flujo de COMPENSACIÓN.
+     *
+     * @param event Evento de pago reembolsado
+     */
+    @Override
+    @Transactional
+    public void handlePaymentRefunded(PaymentRefundedEvent event) {
+        log.info("Manejo de eventos de reembolso de pago para la orden {}", event.getOrderCode());
+        Order order = this.orderRepository.findByOrderCode(event.getOrderCode())
+                .map(orderDB -> {
+                    orderDB.setStatus(Status.CANCELLED);
+                    return orderDB;
+                })
+                .orElseThrow(() -> new OrderNotFoundException(event.getOrderCode()));
+        this.orderRepository.save(order);
+        log.info("Orden {} {} tras reembolso. Motivo: {}", event.getOrderCode(), Status.CANCELLED, event.getPayload().getReason());
+    }
+
+    /**
+     * Actualiza el estado de la orden a COMPLETED.
+     * Se ejecuta cuando se recibe el evento InventoryReservedEvent.
+     * Este es el FINAL EXITOSO del flujo SAGA.
+     *
+     * @param event Evento de inventario reservado
+     */
+    @Override
+    @Transactional
+    public void handleInventoryReserved(InventoryReservedEvent event) {
+        log.info("Manejo de evento reservado de inventario para la orden {}", event.getOrderCode());
+        Order order = this.orderRepository.findByOrderCode(event.getOrderCode())
+                .map(orderDB -> {
+                    orderDB.setStatus(Status.COMPLETED);
+                    return orderDB;
+                })
+                .orElseThrow(() -> new OrderNotFoundException(event.getOrderCode()));
+        this.orderRepository.save(order);
+        log.info("Orden {} {} exitosamente", event.getOrderCode(), Status.COMPLETED);
+    }
+
+    /**
+     * Genera un orderCode único.
+     * Formato: ORD-{yyyyMMddHHmmss}-{shortRandom}
+     * Ejemplo: ORD-20260102180136-794B1F34
+     */
+    private String generateOrderCode() {
+        String dateTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
+        String shortRandom = UUID.randomUUID().toString()
+                .replace("-", "")
+                .substring(0, 8)
+                .toUpperCase();
+        return "ORD-%s-%s".formatted(dateTime, shortRandom);
+    }
+}
+````
+
+## Controller
+
+````java
+/**
+ * REST Controller para gestionar órdenes.
+ * <p>
+ * Endpoints:
+ * - POST /api/v1/orders: Crea una nueva orden
+ * - GET /api/v1/orders/{orderCode}: Consulta el estado de una orden
+ */
+@Slf4j
+@RequiredArgsConstructor
+@RestController
+@RequestMapping(path = "/api/v1/orders")
+public class OrderController {
+
+    private final OrderService orderService;
+
+    /**
+     * Consulta el estado actual de una orden.
+     * <p>
+     * El cliente usa este endpoint para verificar el estado de la orden
+     * después de haberla creado, ya que el procesamiento es asíncrono.
+     * <p>
+     * Estados posibles:
+     * - PENDING: Orden creada, esperando procesamiento
+     * - PAYMENT_CONFIRMED: Pago confirmado
+     * - COMPLETED: Orden completada exitosamente
+     * - CANCELLED: Orden cancelada (por fallo en pago o inventario)
+     *
+     * @param orderCode Identificador de negocio de la orden (ej: ORD-20260102180136-794B1F34)
+     * @return ResponseEntity con OrderResponse y status 200
+     */
+    @GetMapping(path = "/{orderCode}")
+    public ResponseEntity<OrderResponse> getOrder(@PathVariable String orderCode) {
+        log.info("Recuperar la orden con orderCode: {}", orderCode);
+        return ResponseEntity.ok(this.orderService.getOrder(orderCode));
+    }
+
+    /**
+     * Crea una nueva orden.
+     * <p>
+     * Este endpoint:
+     * 1. Recibe la solicitud de creación de orden
+     * 2. Se valida los datos (@Valid)
+     * 3. Crea la orden en BD con estado PENDING
+     * 4. Publica evento ORDER_CREATED a Kafka
+     * 5. Retorna 202 ACCEPTED con la orden creada
+     * <p>
+     * Retorna 202 (Accepted) porque la orden se procesa ASÍNCRONAMENTE.
+     * El cliente debe consultar el estado usando GET /api/v1/orders/{orderCode}
+     *
+     * @param request Datos de la orden a crear
+     * @return ResponseEntity con OrderResponse y status 202
+     */
+    @PostMapping
+    public ResponseEntity<OrderResponse> createOrder(@Valid @RequestBody CreateOrderRequest request) {
+        log.info("Se recibió una solicitud de creación de orden para el cliente: {}", request.customerCode());
+        OrderResponse orderResponse = this.orderService.createOrder(request);
+        log.info("Orden creada exitosamente: {}", orderResponse.orderCode());
+        // 202 ACCEPTED: La solicitud fue aceptada pero se procesa asíncronamente
+        return ResponseEntity.accepted().body(orderResponse);
+    }
+
+}
+````
+
+------------------------------------------------------------------------------------------------------------------------
+
+## Probando Order Service
+
+Luego de ejecutar la aplicación exitosamente, vemos que se nos crea el topic `order.created` en el cluster de
+Kafka, eso lo podemos comprobar si listamos todos los topics de nuestro cluster de kafka con el siguiente comando:
+
+````bash
+$ docker container exec -it c-kafka-saga /opt/kafka/bin/kafka-topics.sh --list --bootstrap-server localhost:9092
+order.created
+````
+
+Como hasta el momento no tenemos ningún consumidor que esté pendiente del topic `order.created` dentro de los archivos
+de instalación de Kafka, en nuestro caso, dentro del contenedor de kafka, viene el script de shell llamado
+`kafka-console-consumer.sh` que nos ayudará a realizar el consumo. Así que ejecutamos el siguiente comando en consola
+y veremos que nuestra consola se queda esperando por los mensajes:
+
+````bash
+$ docker container exec -it c-kafka-saga /opt/kafka/bin/kafka-console-consumer.sh --topic order.created --bootstrap-server localhost:9092
+````
+
+### Creación de una orden
+
+````bash
+$ curl -v -X POST -H "Content-type: application/json" -d "{\"customerId\": \"CUST-001\", \"currency\": \"PEN\", \"items\": [{\"productId\": \"PROD-001\", \"quantity\": 2, \"price\": 50.00}, {\"productId\": \"PROD-002\", \"quantity\": 1, \"price\": 30.00}]}" http://localhost:8081/api/v1/orders | jq
+>
+< HTTP/1.1 202
+< Content-Type: application/json
+< Transfer-Encoding: chunked
+< Date: Wed, 07 Jan 2026 16:11:35 GMT
+<
+{
+  "orderId": "ORD-20260107111135-F4510E7C",
+  "customerId": "CUST-001",
+  "totalAmount": 130.00,
+  "currency": "PEN",
+  "status": "PENDING",
+  "createdAt": "2026-01-07T11:11:35.534419",
+  "updatedAt": "2026-01-07T11:11:35.534419",
+  "items": [
+    {
+      "productId": "PROD-001",
+      "quantity": 2,
+      "price": 50.00,
+      "subtotal": 100.00
+    },
+    {
+      "productId": "PROD-002",
+      "quantity": 1,
+      "price": 30.00,
+      "subtotal": 30.00
+    }
+  ]
+}
+````
+
+Verificamos el log del IDE de IntelliJ IDEA
+
+````bash
+2026-01-07T11:11:35.487-05:00  INFO 22132 --- [order-service] [nio-8081-exec-4] d.m.o.app.controller.OrderController     : Se recibió una solicitud de creación de orden para el cliente: CUST-001
+2026-01-07T11:11:35.496-05:00  INFO 22132 --- [order-service] [nio-8081-exec-4] d.m.o.app.service.impl.OrderServiceImpl  : Creando order para cliente: CUST-001
+2026-01-07T11:11:35.541-05:00 DEBUG 22132 --- [order-service] [nio-8081-exec-4] org.hibernate.SQL                        : 
+    insert 
+    into
+        orders
+        (created_at, currency, customer_id, order_id, status, total_amount, updated_at) 
+    values
+        (?, ?, ?, ?, ?, ?, ?)
+2026-01-07T11:11:35.583-05:00 DEBUG 22132 --- [order-service] [nio-8081-exec-4] org.hibernate.SQL                        : 
+    insert 
+    into
+        order_details
+        (order_id, price, product_id, quantity) 
+    values
+        (?, ?, ?, ?)
+2026-01-07T11:11:35.586-05:00 DEBUG 22132 --- [order-service] [nio-8081-exec-4] org.hibernate.SQL                        : 
+    insert 
+    into
+        order_details
+        (order_id, price, product_id, quantity) 
+    values
+        (?, ?, ?, ?)
+2026-01-07T11:11:35.589-05:00  INFO 22132 --- [order-service] [nio-8081-exec-4] d.m.o.app.service.impl.OrderServiceImpl  : Orden creado con ID 1 y con orderId ORD-20260107111135-F4510E7C
+2026-01-07T11:11:35.611-05:00  INFO 22132 --- [order-service] [nio-8081-exec-4] o.a.k.clients.producer.ProducerConfig    : ProducerConfig values: 
+	acks = -1
+	auto.include.jmx.reporter = true
+	batch.size = 16384
+	bootstrap.servers = [localhost:9092]
+	buffer.memory = 33554432
+	client.dns.lookup = use_all_dns_ips
+	client.id = order-service-producer-1
+	compression.gzip.level = -1
+	compression.lz4.level = 9
+	compression.type = none
+	compression.zstd.level = 3
+	connections.max.idle.ms = 540000
+	delivery.timeout.ms = 120000
+	enable.idempotence = true
+	enable.metrics.push = true
+	interceptor.classes = []
+	key.serializer = class org.apache.kafka.common.serialization.StringSerializer
+	linger.ms = 0
+	max.block.ms = 60000
+	max.in.flight.requests.per.connection = 5
+	max.request.size = 1048576
+	metadata.max.age.ms = 300000
+	metadata.max.idle.ms = 300000
+	metadata.recovery.strategy = none
+	metric.reporters = []
+	metrics.num.samples = 2
+	metrics.recording.level = INFO
+	metrics.sample.window.ms = 30000
+	partitioner.adaptive.partitioning.enable = true
+	partitioner.availability.timeout.ms = 0
+	partitioner.class = null
+	partitioner.ignore.keys = false
+	receive.buffer.bytes = 32768
+	reconnect.backoff.max.ms = 1000
+	reconnect.backoff.ms = 50
+	request.timeout.ms = 30000
+	retries = 2147483647
+	retry.backoff.max.ms = 1000
+	retry.backoff.ms = 100
+	sasl.client.callback.handler.class = null
+	sasl.jaas.config = null
+	sasl.kerberos.kinit.cmd = /usr/bin/kinit
+	sasl.kerberos.min.time.before.relogin = 60000
+	sasl.kerberos.service.name = null
+	sasl.kerberos.ticket.renew.jitter = 0.05
+	sasl.kerberos.ticket.renew.window.factor = 0.8
+	sasl.login.callback.handler.class = null
+	sasl.login.class = null
+	sasl.login.connect.timeout.ms = null
+	sasl.login.read.timeout.ms = null
+	sasl.login.refresh.buffer.seconds = 300
+	sasl.login.refresh.min.period.seconds = 60
+	sasl.login.refresh.window.factor = 0.8
+	sasl.login.refresh.window.jitter = 0.05
+	sasl.login.retry.backoff.max.ms = 10000
+	sasl.login.retry.backoff.ms = 100
+	sasl.mechanism = GSSAPI
+	sasl.oauthbearer.clock.skew.seconds = 30
+	sasl.oauthbearer.expected.audience = null
+	sasl.oauthbearer.expected.issuer = null
+	sasl.oauthbearer.header.urlencode = false
+	sasl.oauthbearer.jwks.endpoint.refresh.ms = 3600000
+	sasl.oauthbearer.jwks.endpoint.retry.backoff.max.ms = 10000
+	sasl.oauthbearer.jwks.endpoint.retry.backoff.ms = 100
+	sasl.oauthbearer.jwks.endpoint.url = null
+	sasl.oauthbearer.scope.claim.name = scope
+	sasl.oauthbearer.sub.claim.name = sub
+	sasl.oauthbearer.token.endpoint.url = null
+	security.protocol = PLAINTEXT
+	security.providers = null
+	send.buffer.bytes = 131072
+	socket.connection.setup.timeout.max.ms = 30000
+	socket.connection.setup.timeout.ms = 10000
+	ssl.cipher.suites = null
+	ssl.enabled.protocols = [TLSv1.2, TLSv1.3]
+	ssl.endpoint.identification.algorithm = https
+	ssl.engine.factory.class = null
+	ssl.key.password = null
+	ssl.keymanager.algorithm = SunX509
+	ssl.keystore.certificate.chain = null
+	ssl.keystore.key = null
+	ssl.keystore.location = null
+	ssl.keystore.password = null
+	ssl.keystore.type = JKS
+	ssl.protocol = TLSv1.3
+	ssl.provider = null
+	ssl.secure.random.implementation = null
+	ssl.trustmanager.algorithm = PKIX
+	ssl.truststore.certificates = null
+	ssl.truststore.location = null
+	ssl.truststore.password = null
+	ssl.truststore.type = JKS
+	transaction.timeout.ms = 60000
+	transactional.id = null
+	value.serializer = class org.springframework.kafka.support.serializer.JsonSerializer
+
+2026-01-07T11:11:35.660-05:00  INFO 22132 --- [order-service] [nio-8081-exec-4] o.a.k.c.t.i.KafkaMetricsCollector        : initializing Kafka metrics collector
+2026-01-07T11:11:35.683-05:00  INFO 22132 --- [order-service] [nio-8081-exec-4] o.a.k.clients.producer.KafkaProducer     : [Producer clientId=order-service-producer-1] Instantiated an idempotent producer.
+2026-01-07T11:11:35.712-05:00  INFO 22132 --- [order-service] [nio-8081-exec-4] o.a.kafka.common.utils.AppInfoParser     : Kafka version: 3.9.1
+2026-01-07T11:11:35.712-05:00  INFO 22132 --- [order-service] [nio-8081-exec-4] o.a.kafka.common.utils.AppInfoParser     : Kafka commitId: f745dfdcee2b9851
+2026-01-07T11:11:35.712-05:00  INFO 22132 --- [order-service] [nio-8081-exec-4] o.a.kafka.common.utils.AppInfoParser     : Kafka startTimeMs: 1767802295712
+2026-01-07T11:11:35.735-05:00  INFO 22132 --- [order-service] [vice-producer-1] org.apache.kafka.clients.Metadata        : [Producer clientId=order-service-producer-1] Cluster ID: 5L6g3nShT-eMCtK--X86sw
+2026-01-07T11:11:35.779-05:00  INFO 22132 --- [order-service] [nio-8081-exec-4] d.m.o.a.e.publisher.OrderEventPublisher  : Se publicó el evento ORDER_CREATED, en el topic order.created, para la orden ORD-20260107111135-F4510E7C
+2026-01-07T11:11:35.800-05:00  INFO 22132 --- [order-service] [nio-8081-exec-4] d.m.o.app.controller.OrderController     : Orden creada exitosamente: ORD-20260107111135-F4510E7C
+2026-01-07T11:11:35.850-05:00  INFO 22132 --- [order-service] [vice-producer-1] o.a.k.c.p.internals.TransactionManager   : [Producer clientId=order-service-producer-1] ProducerId set to 0 with epoch 0 
+````
+
+Verificamos la consola del consumidor que dejamos escuchando al topic `order.created`.
+
+````bash
+$ docker container exec -it c-kafka-saga /opt/kafka/bin/kafka-console-consumer.sh --topic order.created --bootstrap-server localhost:9092
+{"eventId":"fdb56556-1753-431c-b3d4-34987232be17","eventType":"ORDER_CREATED","timestamp":[2026,1,7,11,11,35,592386300],"orderId":"ORD-20260107111135-F4510E7C","payload":{"customerId":"CUST-001","totalAmount":130.00,"currency":"PEN","items":[{"productId":"PROD-001","quantity":2,"price":50.00},{"productId":"PROD-002","quantity":1,"price":30.00}]}}
+````
+
+### Consultando una orden
+
+````bash
+$ curl -v http://localhost:8081/api/v1/orders/ORD-20260107111135-F4510E7C | jq
+>
+< HTTP/1.1 200
+< Content-Type: application/json
+< Transfer-Encoding: chunked
+< Date: Wed, 07 Jan 2026 16:28:10 GMT
+<
+{
+  "orderId": "ORD-20260107111135-F4510E7C",
+  "customerId": "CUST-001",
+  "totalAmount": 130.00,
+  "currency": "PEN",
+  "status": "PENDING",
+  "createdAt": "2026-01-07T11:11:35.534419",
+  "updatedAt": "2026-01-07T11:11:35.534419",
+  "items": [
+    {
+      "productId": "PROD-001",
+      "quantity": 2,
+      "price": 50.00,
+      "subtotal": 100.00
+    },
+    {
+      "productId": "PROD-002",
+      "quantity": 1,
+      "price": 30.00,
+      "subtotal": 30.00
+    }
+  ]
+} 
+````
+
+Verificando log del IDE de IntelliJ IDEA
+
+````bash
+2026-01-07T11:28:10.568-05:00  INFO 22132 --- [order-service] [nio-8081-exec-2] d.m.o.app.controller.OrderController     : Se recibió una solicitud de orden para: ORD-20260107111135-F4510E7C
+2026-01-07T11:28:10.573-05:00  INFO 22132 --- [order-service] [nio-8081-exec-2] d.m.o.app.service.impl.OrderServiceImpl  : Recuperando orden ORD-20260107111135-F4510E7C
+2026-01-07T11:28:10.696-05:00 DEBUG 22132 --- [order-service] [nio-8081-exec-2] org.hibernate.SQL                        : 
+    select
+        o1_0.id,
+        o1_0.created_at,
+        o1_0.currency,
+        o1_0.customer_id,
+        o1_0.order_id,
+        o1_0.status,
+        o1_0.total_amount,
+        o1_0.updated_at 
+    from
+        orders o1_0 
+    where
+        o1_0.order_id=?
+2026-01-07T11:28:10.723-05:00 DEBUG 22132 --- [order-service] [nio-8081-exec-2] org.hibernate.SQL                        : 
+    select
+        od1_0.order_id,
+        od1_0.id,
+        od1_0.price,
+        od1_0.product_id,
+        od1_0.quantity 
+    from
+        order_details od1_0 
+    where
+        od1_0.order_id=? 
+````
+
+Si revisamos la base de datos del microservicio `order-service` veremos que los datos se han guardado correctamente
+
+![01.png](assets/01-order-service/01.png)
+
+Recordemos que a nivel de base de datos estamos trabajando con los tradicionales id incrementales, en ese sentido:
+
+- La PK de la tabla orders es id.
+- La PK de la tabla order_details es id.
+- La FK en la tabla order_details que hace referencia a la tabla orders es order_id.
+
+Estas claves son importantes para manejar las relaciones, consultas, etc. a nivel de base de datos. Mientras que,
+por otro lado, en la tabla orders hay una columna llamada order_id que es del tipo varchar, es una columna que servirá
+como "clave única" para el registro de la orden, es este dato el que estará viajando de manera externa, el que se
+expondrá en los endpoints o el que usará el cliente para consultar una orden. Para mejor claridad, podríamos haberle
+dado otro nombre para no confundirlo con claves foráneas, pero bueno, por eso hago esta aclaración.
+

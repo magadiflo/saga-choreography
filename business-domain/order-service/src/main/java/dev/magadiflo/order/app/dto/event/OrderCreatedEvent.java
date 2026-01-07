@@ -25,7 +25,7 @@ public class OrderCreatedEvent extends BaseEvent {
     @Builder
     @Data
     public static class Payload {
-        private String customerId;
+        private String customerCode;
         private BigDecimal totalAmount;
         private Currency currency;
         private List<OrderItem> items;
@@ -36,7 +36,7 @@ public class OrderCreatedEvent extends BaseEvent {
     @Builder
     @Data
     public static class OrderItem {
-        private String productId;
+        private String productCode;
         private Integer quantity;
         private BigDecimal price;
     }

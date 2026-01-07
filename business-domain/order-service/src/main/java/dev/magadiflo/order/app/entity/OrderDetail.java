@@ -18,8 +18,9 @@ import lombok.Setter;
 import lombok.ToString;
 
 import java.math.BigDecimal;
+import java.util.Objects;
 
-@ToString
+@ToString(exclude = "order") // Excluimos order para evitar recursividad en logs o debugging.
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
@@ -28,16 +29,15 @@ import java.math.BigDecimal;
 @Entity
 @Table(
         name = "order_details",
-        uniqueConstraints = @UniqueConstraint(columnNames = {"order_id", "product_id"})
+        uniqueConstraints = @UniqueConstraint(columnNames = {"order_id", "product_code"})
 )
 public class OrderDetail {
-
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
     @Column(nullable = false, length = 50)
-    private String productId;
+    private String productCode;
 
     @Column(nullable = false)
     private Integer quantity;
@@ -48,4 +48,17 @@ public class OrderDetail {
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "order_id", nullable = false)
     private Order order;
+
+    @Override
+    public boolean equals(Object o) {
+        if (o == null || getClass() != o.getClass()) return false;
+        OrderDetail that = (OrderDetail) o;
+        return Objects.equals(this.getProductCode(), that.getProductCode()) &&
+               Objects.equals(this.getOrder(), that.getOrder());
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(this.getProductCode());
+    }
 }

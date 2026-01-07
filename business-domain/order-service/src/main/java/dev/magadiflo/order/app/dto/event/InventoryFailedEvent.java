@@ -33,7 +33,7 @@ public class InventoryFailedEvent extends BaseEvent {
     @Builder
     @Data
     public static class UnavailableItem {
-        private String productId;
+        private String productCode;
         private Integer requestedQuantity;
         private Integer availableQuantity;
     }

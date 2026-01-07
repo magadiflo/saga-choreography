@@ -23,7 +23,7 @@ public class InventoryReservedEvent extends BaseEvent {
     @Builder
     @Data
     public static class Payload {
-        private String reservationId;
+        private String reservationCode;
         private List<ReservedItem> items;
     }
 
@@ -32,7 +32,7 @@ public class InventoryReservedEvent extends BaseEvent {
     @Builder
     @Data
     public static class ReservedItem {
-        private String productId;
+        private String productCode;
         private Integer quantityReserved;
     }
 }

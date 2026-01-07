@@ -23,9 +23,9 @@ public class PaymentRefundedEvent extends BaseEvent {
     @Builder
     @Data
     public static class Payload {
-        private String refundId;
+        private String refundCode;
         private BigDecimal amount;
-        private String originalPaymentId;
+        private String originalPaymentCode;
         private String reason;
     }
 }

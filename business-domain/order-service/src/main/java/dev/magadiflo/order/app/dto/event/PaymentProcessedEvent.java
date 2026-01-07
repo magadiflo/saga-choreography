@@ -23,10 +23,10 @@ public class PaymentProcessedEvent extends BaseEvent {
     @Builder
     @Data
     public static class Payload {
-        private String paymentId;
+        private String paymentCode;
         private BigDecimal amount;
         private String currency;
-        private String transactionId;
+        private String transactionCode;
 
     }
 }
