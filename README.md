@@ -1583,3 +1583,76 @@ En nuestro caso moveremos todas las clases del paquete `event`, el enum `Currenc
 
 Como ahora nuestro `order-service` ya no tiene las clases comunes, sino que fueron pasadas a la librería. Tenemos que
 corregir las importaciones de las clases para que se importen de la librería.
+
+## Probando order-service con la integración de la librería saga-choreography-commons
+
+Primero eliminaremos el topic `order.created` para empezar limpios.
+
+````bash
+$ docker container exec -it c-kafka-saga /opt/kafka/bin/kafka-topics.sh --delete --topic order.created --bootstrap-server localhost:9092
+````
+
+Segundo, eliminamos las tablas de la base de datos `db_order_service`. A continuación procedemos a ejecutar nuestra
+aplicación.
+
+Ahora, listanos los topis y vemos que nuestra aplicación lo ha vuelto a crear sin problemas.
+
+````bash
+$ docker container exec -it c-kafka-saga /opt/kafka/bin/kafka-topics.sh --list --bootstrap-server localhost:9092
+__consumer_offsets
+order.created
+````
+
+Ejecutamos el consumer para que esté pendiente del topic `order.created`.
+
+````bash
+$ docker container exec -it c-kafka-saga /opt/kafka/bin/kafka-console-consumer.sh --topic order.created --bootstrap-server localhost:9092
+````
+
+Ahora, procedemos a crear una orden.
+
+````bash
+$ curl -v -X POST -H "Content-type: application/json" -d "{\"customerCode\": \"CUST-001\", \"currency\": \"PEN\", \"items\": [{\"productCode\": \"PROD-001\", \"quantity\": 2, \"price\": 50.00}, {\"productCode\": \"PROD-002\", \"quantity\": 1, \"price\": 30.00}]}" http://localhost:8081/api/v1/orders | jq
+>
+< HTTP/1.1 202
+< Content-Type: application/json
+< Transfer-Encoding: chunked
+< Date: Fri, 09 Jan 2026 16:02:12 GMT
+<
+{
+  "orderCode": "ORD-20260109110211-CFA89FA0",
+  "customerCode": "CUST-001",
+  "totalAmount": 130.00,
+  "currency": "PEN",
+  "status": "PENDING",
+  "createdAt": "2026-01-09T11:02:12.028532",
+  "updatedAt": "2026-01-09T11:02:12.028532",
+  "items": [
+    {
+      "productCode": "PROD-001",
+      "quantity": 2,
+      "price": 50.00,
+      "subtotal": 100.00
+    },
+    {
+      "productCode": "PROD-002",
+      "quantity": 1,
+      "price": 30.00,
+      "subtotal": 30.00
+    }
+  ]
+}
+````
+
+Si vemos el consumidor de la consola, vemos que ha consumido correctamente el evento enviado al topic `order.created`.
+
+````bash
+$ docker container exec -it c-kafka-saga /opt/kafka/bin/kafka-console-consumer.sh --topic order.created --bootstrap-server localhost:9092
+{"eventId":"bb42b10c-8aaa-4ab2-92be-78a65cf6ce09","eventType":"ORDER_CREATED","timestamp":[2026,1,9,11,2,12,79288900],"orderCode":"ORD-20260109110211-CFA89FA0","payload":{"customerCode":"CUST-001","totalAmount":130.00,"currency":"PEN","items":[{"productCode":"PROD-001","quantity":2,"price":50.00},{"productCode":"PROD-002","quantity":1,"price":30.00}]}}
+````
+
+Si revisamos la base de datos del microservicio `order-service` veremos que los datos se han guardado nuevamente
+de manera correcta.
+
+![02.png](assets/01-order-service/02.png)
+
