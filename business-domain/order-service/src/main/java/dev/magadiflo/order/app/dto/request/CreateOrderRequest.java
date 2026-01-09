@@ -1,6 +1,6 @@
 package dev.magadiflo.order.app.dto.request;
 
-import dev.magadiflo.order.app.model.Currency;
+import dev.magadiflo.commons.enums.Currency;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;

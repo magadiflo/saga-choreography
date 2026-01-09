@@ -1,4 +1,4 @@
-package dev.magadiflo.order.app.model;
+package dev.magadiflo.commons.enums;
 
 public enum Currency {
     USD,

@@ -1,6 +1,6 @@
 package dev.magadiflo.order.app.dto.response;
 
-import dev.magadiflo.order.app.model.Currency;
+import dev.magadiflo.commons.enums.Currency;
 import dev.magadiflo.order.app.model.Status;
 
 import java.math.BigDecimal;

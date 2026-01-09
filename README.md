@@ -1487,3 +1487,99 @@ Si revisamos la base de datos del microservicio `order-service` veremos que los 
 
 ![01.png](assets/01-order-service/01.png)
 
+## Creando librería saga-choreography-commons
+
+Creamos un proyecto java maven común. Normalmente cuando creamos un proyecto java maven común se nos crea con estas
+properties:
+
+````xml
+
+<properties>
+    <maven.compiler.source>21</maven.compiler.source>
+    <maven.compiler.target>21</maven.compiler.target>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+</properties>
+````
+
+En nuestro caso, dejaremos únicamente la propiedad `project.build.sourceEncoding`, las otras dos las eliminaremos dado
+que usaremos la configuración `release` en el plugin `maven-compiler-plugin`, según investigué es mejor hacer uso
+del `release` que del `source/target`.
+
+Entonces, nuestro `pom.xml` de nuestra librería quedaría de la siguiente manera con la dependencia de `lombok`:
+
+````xml
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>dev.magadiflo</groupId>
+    <artifactId>saga-choreography-commons</artifactId>
+    <version>1.0.0</version>
+
+    <properties>
+        <java.version>21</java.version>
+        <lombok.version>1.18.42</lombok.version>
+        <maven.compiler.version>3.14.1</maven.compiler.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+    <dependencies>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <version>${lombok.version}</version>
+            <!-- provided: indica que lombok se usará solo para realizar la compilación, no se incluirá en el JAR final de la librería -->
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+    <build>
+        <plugins>
+            <!-- Plugin de compilación -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>${maven.compiler.version}</version>
+                <configuration>
+                    <!-- Usamos release en lugar de source/target -->
+                    <release>${java.version}</release>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+````
+
+- `Lombok` con scope `provided`. Significa que tu librería `usa Lombok para compilarse`, pero
+  `no lo empaqueta dentro del jar`.
+- `maven-compiler-plugin` → `release`.
+    - Compila con el JDK seleccionado y genera bytecode compatible con esa versión. Es más seguro que `source/target`.
+    - Hoy en día se recomienda usar `release` en el `maven-compiler-plugin` en lugar de `source/target`.
+    - Con `release` garantizas que el compilador use las APIs correctas de esa versión de Java, no solo el nivel de
+      lenguaje.
+
+### Agregar la dependencia de nuestra librería en el pom.xml del order-service
+
+En el `pom.xml` de nuestro microservicio `order-service` agregamos la dependencia de nuestra librería
+`saga-choreography-commons`, tal como se ve a continuación.
+
+````xml
+
+<dependencies>
+    <dependency>
+        <groupId>dev.magadiflo</groupId>
+        <artifactId>saga-choreography-commons</artifactId>
+        <version>1.0.0</version>
+    </dependency>
+</dependencies>
+````
+
+### Moviendo clases comunes desde el order-service a la librería
+
+En nuestro caso moveremos todas las clases del paquete `event`, el enum `Currency` y la clase de constante
+`OrderMessagingConstants`.
+
+### Modificamos importaciones del order-service
+
+Como ahora nuestro `order-service` ya no tiene las clases comunes, sino que fueron pasadas a la librería. Tenemos que
+corregir las importaciones de las clases para que se importen de la librería.

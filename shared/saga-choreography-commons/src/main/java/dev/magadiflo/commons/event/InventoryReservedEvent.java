@@ -1,4 +1,4 @@
-package dev.magadiflo.order.app.dto.event;
+package dev.magadiflo.commons.event;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -7,12 +7,14 @@ import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 import lombok.experimental.SuperBuilder;
 
+import java.util.List;
+
 @AllArgsConstructor
 @NoArgsConstructor
 @EqualsAndHashCode(callSuper = true)
 @SuperBuilder
 @Data
-public class PaymentFailedEvent extends BaseEvent {
+public class InventoryReservedEvent extends BaseEvent {
 
     private Payload payload;
 
@@ -21,7 +23,16 @@ public class PaymentFailedEvent extends BaseEvent {
     @Builder
     @Data
     public static class Payload {
-        private String reason;
-        private String errorCode;
+        private String reservationCode;
+        private List<ReservedItem> items;
+    }
+
+    @AllArgsConstructor
+    @NoArgsConstructor
+    @Builder
+    @Data
+    public static class ReservedItem {
+        private String productCode;
+        private Integer quantityReserved;
     }
 }

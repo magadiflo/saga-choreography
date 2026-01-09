@@ -1,7 +1,7 @@
 package dev.magadiflo.order.app.events.publisher;
 
-import dev.magadiflo.order.app.constants.OrderMessagingConstants;
-import dev.magadiflo.order.app.dto.event.OrderCreatedEvent;
+import dev.magadiflo.commons.constants.OrderMessagingConstants;
+import dev.magadiflo.commons.event.OrderCreatedEvent;
 import dev.magadiflo.order.app.entity.Order;
 import dev.magadiflo.order.app.model.EventType;
 import lombok.RequiredArgsConstructor;

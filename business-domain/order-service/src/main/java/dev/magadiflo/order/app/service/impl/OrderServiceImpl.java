@@ -1,9 +1,9 @@
 package dev.magadiflo.order.app.service.impl;
 
-import dev.magadiflo.order.app.dto.event.InventoryReservedEvent;
-import dev.magadiflo.order.app.dto.event.PaymentFailedEvent;
-import dev.magadiflo.order.app.dto.event.PaymentProcessedEvent;
-import dev.magadiflo.order.app.dto.event.PaymentRefundedEvent;
+import dev.magadiflo.commons.event.InventoryReservedEvent;
+import dev.magadiflo.commons.event.PaymentFailedEvent;
+import dev.magadiflo.commons.event.PaymentProcessedEvent;
+import dev.magadiflo.commons.event.PaymentRefundedEvent;
 import dev.magadiflo.order.app.dto.request.CreateOrderRequest;
 import dev.magadiflo.order.app.dto.request.OrderDetailRequest;
 import dev.magadiflo.order.app.dto.response.OrderResponse;

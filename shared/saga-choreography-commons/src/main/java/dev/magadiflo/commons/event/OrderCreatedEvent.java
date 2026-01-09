@@ -1,6 +1,6 @@
-package dev.magadiflo.order.app.dto.event;
+package dev.magadiflo.commons.event;
 
-import dev.magadiflo.order.app.model.Currency;
+import dev.magadiflo.commons.enums.Currency;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;

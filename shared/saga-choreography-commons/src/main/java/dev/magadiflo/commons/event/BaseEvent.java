@@ -1,4 +1,4 @@
-package dev.magadiflo.order.app.dto.event;
+package dev.magadiflo.commons.event;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;

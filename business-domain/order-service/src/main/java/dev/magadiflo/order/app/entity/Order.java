@@ -1,6 +1,6 @@
 package dev.magadiflo.order.app.entity;
 
-import dev.magadiflo.order.app.model.Currency;
+import dev.magadiflo.commons.enums.Currency;
 import dev.magadiflo.order.app.model.Status;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;

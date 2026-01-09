@@ -1,4 +1,4 @@
-package dev.magadiflo.order.app.constants;
+package dev.magadiflo.commons.constants;
 
 import lombok.experimental.UtilityClass;
 
