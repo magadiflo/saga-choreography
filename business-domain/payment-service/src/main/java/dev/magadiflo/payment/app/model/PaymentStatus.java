@@ -3,9 +3,9 @@ package dev.magadiflo.payment.app.model;
 /**
  * Estados posibles de un pago en el flujo SAGA.
  * <p>
- * Transiciones:
- * - PENDING → PROCESSED (happy path)
- * - PENDING → FAILED (payment falló)
+ * Transiciones:<br>
+ * - PENDING → PROCESSED (happy path)<br>
+ * - PENDING → FAILED (payment falló)<br>
  * - PROCESSED → REFUNDED (compensación cuando inventory falla)
  */
 public enum PaymentStatus {
