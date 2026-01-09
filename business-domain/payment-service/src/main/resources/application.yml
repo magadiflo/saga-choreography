@@ -1,3 +1,35 @@
+server:
+  port: 8082
+  error:
+    include-message: always
+
 spring:
   application:
     name: payment-service
+  datasource:
+    url: jdbc:postgresql://localhost:5434/db_payment_service
+    username: payment_service_user
+    password: payment_service_pass
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        format_sql: true
+  kafka:
+    bootstrap-servers: localhost:9092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+    consumer:
+      group-id: payment-service-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: '*'
+
+logging:
+  level:
+    org.hibernate.SQL: debug
+    dev.magadiflo: debug
