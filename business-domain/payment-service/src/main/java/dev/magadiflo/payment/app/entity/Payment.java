@@ -23,6 +23,13 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Objects;
 
+/**
+ * Entidad Payment - Representa un pago en el sistema.
+ * <p>
+ * Almacena el estado del pago a lo largo del flujo SAGA.
+ * Esta entidad se crea cuando Payment Service recibe un evento ORDER_CREATED
+ * y se actualiza según el resultado del procesamiento.
+ */
 @ToString
 @NoArgsConstructor
 @AllArgsConstructor
@@ -32,32 +39,67 @@ import java.util.Objects;
 @Entity
 @Table(name = "payments")
 public class Payment {
+    /**
+     * ID técnico - Clave primaria interna.
+     * Auto-incremental para eficiencia en índices.
+     */
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    /**
+     * Payment Code - Clave de negocio externa.
+     * Identificador único del pago expuesto en eventos y logs.
+     * Formato: PAY-{timestamp}-{random} (ej: PAY-1735680000-B7D2)
+     */
     @Column(unique = true, nullable = false, length = 50)
     private String paymentCode;
 
-    @Column(unique = true, nullable = false, length = 50)
+    /**
+     * Order Code - Referencia a la orden asociada.
+     * NO es FK porque Order está en otra base de datos (Order Service).
+     * Se usa para vincular el pago con su orden en eventos.
+     */
+    @Column(nullable = false, length = 50)
     private String orderCode;
 
+    /**
+     * Monto del pago.
+     * Debe coincidir con el totalAmount de la orden.
+     */
     @Column(nullable = false, precision = 10, scale = 2)
     private BigDecimal amount;
 
+    /**
+     * Moneda del pago.
+     * Debe coincidir con la moneda de la orden.
+     */
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 3)
     private Currency currency;
 
+    /**
+     * Estado actual del pago.
+     * Se actualiza según el flujo SAGA.
+     */
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private PaymentStatus status;
 
-    // Guarda el ID devuelto por el procesador de pagos (Stripe, PayPal, etc.)
+    /**
+     * Transaction Code - Identificador de la transacción externa.
+     * En un sistema real, sería el ID del gateway de pago (Stripe, PayPal, etc.)
+     * En nuestra simulación, lo generamos nosotros.
+     * Formato: TXN-{random}
+     */
     @Column(length = 100)
-    private String externalTransactionId;
+    private String transactionCode;
 
-    @Column(length = 100)
+    /**
+     * Razón del fallo o reembolso (si aplica).
+     * Se llena cuando status = FAILED o REFUNDED.
+     */
+    @Column(length = 200)
     private String failureReason;
 
     @CreationTimestamp
